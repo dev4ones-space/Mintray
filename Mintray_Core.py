@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """
 Mintray_Core.py - shared backend for MintRay: Xray config generation,
-subscription fetching/parsing, SOCKS5 ping testing, macOS route/DNS
-management, and the App/ProcMgr/NetState state machine.
+subscription fetching/parsing, SOCKS5 ping testing, route/DNS management
+(macOS and Linux), and the App/ProcMgr/NetState state machine.
 
-Zero UI code lives here. Mintray_TUI.py (curses) and Mintray_GUI.py
-(pygame) both import this unchanged and only add a rendering layer on
-top - fix a bug here once, both renderers get the fix.
+Zero UI code lives here. Mintray.py (curses) is the maintained renderer
+and imports this unchanged, only adding a rendering layer on top - fix a
+bug here once, it's fixed everywhere. Mintray_GUI.py (pygame) also still
+imports this same way but isn't actively maintained.
 
 Requires:
-    - xray binary on PATH (brew install xray)
+    - xray binary on PATH (brew install xray on macOS; distro package or
+      github.com/XTLS/Xray-core/releases on Linux)
     - tun2socks binary on PATH (github.com/xjasonlyu/tun2socks releases)
     - sudo (creates TUN device, modifies routes, changes DNS)
+    - Linux only: resolvectl (systemd-resolved) for DNS override - without
+      it, the tunnel still works, just without automatic DNS switching
 
 Stdlib only. No third-party Python packages.
 """
@@ -32,6 +36,7 @@ import signal
 import socket
 import ssl
 import struct
+import platform
 import subprocess
 import sys
 import threading
@@ -43,7 +48,7 @@ from pathlib import Path
 
 # Bump for every real change: X.Y -> X.(Y+1) normally, X.Y -> (X+1).0 for a
 # major change. This is the single source of truth - TUI reads it from here.
-MINTRAY_VERSION = "1.0"
+MINTRAY_VERSION = "1.1"
 
 
 
@@ -58,7 +63,9 @@ LOG_PATH = STATE_DIR / "mintray.log"                 # our own diagnostic trail 
 XRAY_PROC_LOG = STATE_DIR / "xray-proc.log"        # xray's own stdout/stderr - truncated fresh each connect
 TUN2SOCKS_PROC_LOG = STATE_DIR / "tun2socks-proc.log"  # tun2socks's own stdout/stderr - same deal
 
-TUN_DEVICE_DEFAULT = "utun123"
+PLATFORM = platform.system()  # "Darwin" or "Linux"
+
+TUN_DEVICE_DEFAULT = "utun123" if PLATFORM == "Darwin" else "tun123"
 TUN_ADDR = "198.18.0.1"     # point-to-point addr on the TUN side
 TUN_GW = "198.18.0.1"       # gateway tun2socks listens behind
 SOCKS_PORT_DEFAULT = 10808
@@ -67,6 +74,7 @@ SOCKS_PORT_DEFAULT = 10808
 # returns a bare 204 with no body, cheap and doesn't leak much about us.
 PING_HOST = "time.grapheneos.org"
 PING_PATH = "/generate_204"
+PING_URL_DEFAULT = f"https://{PING_HOST}{PING_PATH}"
 PING_BASE_PORT = 19000
 STATS_PORT = 10085  # Xray's own stats API - loopback only, separate from tunnel traffic
 
@@ -175,6 +183,20 @@ def FormatSpeed(bits_per_sec: float) -> str:
     if mbps >= 0.1:
         return f"{mbps:.1f} Mbps"
     return f"{bits_per_sec / 1_000:.0f} Kbps"
+
+
+def FormatDuration(seconds: float) -> str:
+    s = int(seconds)
+    days, s = divmod(s, 86400)
+    hours, s = divmod(s, 3600)
+    minutes, s = divmod(s, 60)
+    if days > 0:
+        return f"{days}d {hours}h"
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    if minutes > 0:
+        return f"{minutes}m {s}s"
+    return f"{s}s"
 
 
 # --------------------------------------------------------------------------
@@ -288,18 +310,16 @@ def GetAnySupportUrl() -> str | None:
 # --------------------------------------------------------------------------
 
 SETTINGS_PATH = STATE_DIR / "settings.json"
-SETTINGS_FIELDS = ["xray_bin", "tun2socks_bin", "ping_host", "ping_path"]
+SETTINGS_FIELDS = ["xray_bin", "tun2socks_bin", "ping_url"]
 SETTINGS_DEFAULTS = {
     "xray_bin": "xray",
     "tun2socks_bin": "tun2socks",
-    "ping_host": PING_HOST,
-    "ping_path": PING_PATH,
+    "ping_url": PING_URL_DEFAULT,
 }
 SETTINGS_LABELS = {
     "xray_bin": "xray binary path",
     "tun2socks_bin": "tun2socks binary path",
-    "ping_host": "ping host",
-    "ping_path": "ping path",
+    "ping_url": "ping url",
 }
 
 
@@ -578,6 +598,19 @@ def Socks5Connect(sock: socket.socket, dest_host: str, dest_port: int) -> None:
         raise RuntimeError(f"unknown ATYP in SOCKS5 reply: {atyp}")
 
 
+def ParsePingUrl(url: str) -> tuple[str, str]:
+    """Splits a single ping URL into (host, path) for the lower-level ping
+    functions, which need them separately for TLS SNI and the HTTP request
+    line. The ping check is always HTTPS/443 regardless of what scheme (if
+    any) is in the given URL."""
+    if "://" not in url:
+        url = "https://" + url
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname or PING_HOST
+    path = parsed.path or "/"
+    return host, path
+
+
 def PingServer(local_socks_port: int, timeout: float = 5.0, ping_host: str = PING_HOST, ping_path: str = PING_PATH) -> float | None:
     """Round-trip time in ms to ping_host through a local SOCKS5 proxy, or
     None on failure/timeout/non-204 response."""
@@ -726,6 +759,20 @@ def RunCmd(*args: str, check: bool = True) -> subprocess.CompletedProcess:
 
 def DetectDefaultRoute() -> tuple[str, str]:
     """Returns (interface, gateway) for the current default IPv4 route."""
+    if PLATFORM == "Linux":
+        out = RunCmd("ip", "route", "show", "default").stdout
+        # "default via 192.0.2.1 dev eth0 proto dhcp metric 100"
+        parts = out.split()
+        iface = gw = ""
+        for i, tok in enumerate(parts):
+            if tok == "via" and i + 1 < len(parts):
+                gw = parts[i + 1]
+            elif tok == "dev" and i + 1 < len(parts):
+                iface = parts[i + 1]
+        if not iface or not gw:
+            raise RuntimeError("couldn't detect default route - are you online?")
+        return iface, gw
+
     out = RunCmd("route", "-n", "get", "default").stdout
     iface = gw = ""
     for line in out.splitlines():
@@ -740,7 +787,13 @@ def DetectDefaultRoute() -> tuple[str, str]:
 
 
 def DetectServiceForInterface(interface: str) -> str:
-    """Map a BSD interface name (en0) to its networksetup service name (Wi-Fi)."""
+    """Map a BSD interface name (en0) to its networksetup service name
+    (Wi-Fi) on macOS. On Linux there's no separate 'service' concept -
+    DNS (via resolvectl) is set per-interface directly, so the interface
+    name IS the service name there."""
+    if PLATFORM == "Linux":
+        return interface
+
     out = RunCmd("networksetup", "-listallhardwareports").stdout
     blocks = out.split("Hardware Port: ")[1:]
     for block in blocks:
@@ -753,6 +806,20 @@ def DetectServiceForInterface(interface: str) -> str:
 
 
 def GetCurrentDns(service: str) -> list[str]:
+    if PLATFORM == "Linux":
+        if shutil.which("resolvectl") is None:
+            Log("resolvectl not found - can't read current DNS, will skip DNS management on this connection")
+            return []
+        result = subprocess.run(["resolvectl", "dns", service], capture_output=True, text=True)
+        if result.returncode != 0:
+            return []
+        # "Link 2 (eth0): 192.0.2.1 192.0.2.2"
+        line = result.stdout.strip()
+        if ":" not in line:
+            return []
+        servers_part = line.split(":", 1)[1].strip()
+        return servers_part.split() if servers_part else []
+
     out = RunCmd("networksetup", "-getdnsservers", service).stdout.strip()
     if out.startswith("There aren't any DNS Servers"):
         return []
@@ -760,6 +827,16 @@ def GetCurrentDns(service: str) -> list[str]:
 
 
 def SetDns(service: str, servers: list[str]) -> None:
+    if PLATFORM == "Linux":
+        if shutil.which("resolvectl") is None:
+            Log("resolvectl not found - skipping DNS override (traffic is still tunneled, just using whatever DNS was already configured)")
+            return
+        if servers:
+            RunCmd("resolvectl", "dns", service, *servers)
+        else:
+            RunCmd("resolvectl", "dns", service, "")
+        return
+
     RunCmd("networksetup", "-setdnsservers", service, *(servers or ["empty"]))
 
 
@@ -770,10 +847,16 @@ def RestoreDns(state: NetState) -> None:
         SetDns(state.service, state.original_dns)
     except Exception as e:
         fallback = " ".join(state.original_dns) if state.original_dns else "empty"
-        Log(
-            f"failed to restore DNS on {state.service!r} to {state.original_dns!r}: {e}. "
-            f"If it looks wrong now, fix manually: networksetup -setdnsservers '{state.service}' {fallback}"
-        )
+        if PLATFORM == "Linux":
+            Log(
+                f"failed to restore DNS on {state.service!r} to {state.original_dns!r}: {e}. "
+                f"If it looks wrong now, fix manually: resolvectl dns '{state.service}' {fallback}"
+            )
+        else:
+            Log(
+                f"failed to restore DNS on {state.service!r} to {state.original_dns!r}: {e}. "
+                f"If it looks wrong now, fix manually: networksetup -setdnsservers '{state.service}' {fallback}"
+            )
     state.dns_changed = False
 
 
@@ -782,8 +865,9 @@ def WaitForInterface(device: str, timeout: float = 5.0) -> bool:
     sleep is long enough - a freshly downloaded binary's first Gatekeeper
     scan alone can eat more than a second before tun2socks finishes setup."""
     deadline = time.monotonic() + timeout
+    check_cmd = ["ip", "link", "show", device] if PLATFORM == "Linux" else ["ifconfig", device]
     while time.monotonic() < deadline:
-        result = subprocess.run(["ifconfig", device], capture_output=True, text=True)
+        result = subprocess.run(check_cmd, capture_output=True, text=True)
         if result.returncode == 0:
             return True
         time.sleep(0.2)
@@ -791,25 +875,43 @@ def WaitForInterface(device: str, timeout: float = 5.0) -> bool:
 
 
 def BringUpTunInterface(device: str) -> None:
+    if PLATFORM == "Linux":
+        RunCmd("ip", "addr", "add", f"{TUN_ADDR}/32", "dev", device)
+        RunCmd("ip", "link", "set", device, "up")
+        return
     RunCmd("ifconfig", device, TUN_ADDR, TUN_GW, "up")
 
 
 def AddHostRoute(host: str, gateway: str) -> None:
+    if PLATFORM == "Linux":
+        RunCmd("ip", "route", "add", f"{host}/32", "via", gateway)
+        return
     RunCmd("route", "add", "-host", host, gateway)
 
 
 def DeleteHostRoute(host: str, gateway: str, check: bool = False) -> None:
+    if PLATFORM == "Linux":
+        RunCmd("ip", "route", "del", f"{host}/32", "via", gateway, check=check)
+        return
     RunCmd("route", "delete", "-host", host, gateway, check=check)
 
 
 def AddFullTunnelRoutes(tun_gw: str) -> None:
     # split-default trick: two /1 routes are more specific than the existing
     # default route, so they win, without us having to touch/replace it
+    if PLATFORM == "Linux":
+        RunCmd("ip", "route", "add", "0.0.0.0/1", "via", tun_gw)
+        RunCmd("ip", "route", "add", "128.0.0.0/1", "via", tun_gw)
+        return
     RunCmd("route", "add", "-net", "0.0.0.0/1", tun_gw)
     RunCmd("route", "add", "-net", "128.0.0.0/1", tun_gw)
 
 
 def DeleteFullTunnelRoutes(tun_gw: str, check: bool = False) -> None:
+    if PLATFORM == "Linux":
+        RunCmd("ip", "route", "del", "0.0.0.0/1", "via", tun_gw, check=check)
+        RunCmd("ip", "route", "del", "128.0.0.0/1", "via", tun_gw, check=check)
+        return
     RunCmd("route", "delete", "-net", "0.0.0.0/1", tun_gw, check=check)
     RunCmd("route", "delete", "-net", "128.0.0.0/1", tun_gw, check=check)
 
@@ -911,10 +1013,15 @@ class App:
     def CheckBinaries(self) -> None:
         missing = [b for b in (self.args.xray_bin, self.args.tun2socks_bin) if not shutil.which(b)]
         if missing:
-            raise RuntimeError(
-                f"missing binaries on PATH: {missing}. "
-                "brew install xray; download tun2socks from github.com/xjasonlyu/tun2socks/releases"
-            )
+            if PLATFORM == "Linux":
+                hint = (
+                    "install xray from your distro's package (e.g. apt install xray, "
+                    "or github.com/XTLS/Xray-core/releases); "
+                    "download tun2socks-linux-amd64 (or arm64) from github.com/xjasonlyu/tun2socks/releases"
+                )
+            else:
+                hint = "brew install xray; download tun2socks from github.com/xjasonlyu/tun2socks/releases"
+            raise RuntimeError(f"missing binaries on PATH: {missing}. {hint}")
 
     def LoadServers(self) -> None:
         if self.args.config:
@@ -962,8 +1069,8 @@ class App:
         if self._ping_busy:
             return
         self._ping_busy = True
-        ping_host = getattr(self.args, "ping_host", PING_HOST)
-        ping_path = getattr(self.args, "ping_path", PING_PATH)
+        ping_url = getattr(self.args, "ping_url", PING_URL_DEFAULT)
+        ping_host, ping_path = ParsePingUrl(ping_url)
         self.status_msg = f"pinging {len(self.servers)} servers via {ping_host}..."
         self.pings = {}
 
@@ -1010,6 +1117,13 @@ class App:
     def _DoConnect(self) -> None:
         outbound = self.current_server
         proxy_host = ExtractProxyHost(outbound)
+        proxy_ip = proxy_host
+        if proxy_host and not IsIpAddress(proxy_host):
+            try:
+                proxy_ip = socket.gethostbyname(proxy_host)
+                Log(f"resolved proxy host {proxy_host!r} -> {proxy_ip} for routing")
+            except socket.gaierror as e:
+                raise RuntimeError(f"couldn't resolve proxy host {proxy_host!r} to add its bypass route: {e}")
 
         config = BuildXrayConfig(outbound, self.args.socks_port, stats_port=STATS_PORT)
         config_path = WriteXrayConfig(config)
@@ -1019,16 +1133,23 @@ class App:
         self.net.interface = iface
         self.net.gateway = gw
         self.net.service = service
-        self.net.proxy_host = proxy_host
+        self.net.proxy_host = proxy_ip
         self.net.original_dns = GetCurrentDns(service)
         non_ip = [d for d in self.net.original_dns if not IsIpAddress(d)]
         if non_ip:
-            Log(
-                f"heads up: current DNS entries on {service!r} aren't plain IPs: {non_ip} - "
-                "likely an Encrypted DNS (DoH/DoT) provider set in System Settings > Network > "
-                f"{service} > DNS, not classic DNS servers. networksetup can't restore that on "
-                "disconnect - you may need to re-select it there manually afterward."
-            )
+            if PLATFORM == "Linux":
+                Log(
+                    f"heads up: current DNS entries on {service!r} aren't plain IPs: {non_ip} - "
+                    "likely DNS-over-TLS/HTTPS configured in systemd-resolved. resolvectl can't "
+                    "restore that on disconnect - you may need to re-set it manually afterward."
+                )
+            else:
+                Log(
+                    f"heads up: current DNS entries on {service!r} aren't plain IPs: {non_ip} - "
+                    "likely an Encrypted DNS (DoH/DoT) provider set in System Settings > Network > "
+                    f"{service} > DNS, not classic DNS servers. networksetup can't restore that on "
+                    "disconnect - you may need to re-select it there manually afterward."
+                )
 
         self.proc.StartXray(config_path)
         time.sleep(0.5)  # give xray a moment to bind the socks port
@@ -1036,8 +1157,8 @@ class App:
         if not xray_ok:
             raise RuntimeError(f"xray died on startup: {ReadLogTail(XRAY_PROC_LOG)}")
 
-        if proxy_host:
-            AddHostRoute(proxy_host, gw)
+        if proxy_ip:
+            AddHostRoute(proxy_ip, gw)
             self.net.host_route_added = True
 
         self.proc.StartTun2socks(self.net.tun_device, self.args.socks_port, iface)
@@ -1164,8 +1285,7 @@ def ParseArgs() -> argparse.Namespace:
     p.add_argument("--xray-bin", default="xray")
     p.add_argument("--tun2socks-bin", default="tun2socks")
     p.add_argument("--dns", default="1.1.1.1,1.0.0.1")
-    p.add_argument("--ping-host", default=PING_HOST, help="host used for the connectivity-check ping (default: time.grapheneos.org)")
-    p.add_argument("--ping-path", default=PING_PATH, help="path used for the connectivity-check ping (default: /generate_204)")
+    p.add_argument("--ping-url", default=PING_URL_DEFAULT, help="URL used for the connectivity-check ping (default: https://time.grapheneos.org/generate_204)")
     p.add_argument("--cleanup", action="store_true", help="tear down routes/DNS from a previous crashed run and exit")
     p.add_argument("--add-sub", metavar="URL", help="save a subscription URL for every future run (supports more than one - servers get merged)")
     p.add_argument("--remove-sub", metavar="URL_OR_N", help="remove a saved subscription, by URL or by its number from --list-subs")
@@ -1185,7 +1305,7 @@ def PrintSubs(subs: list[str]) -> None:
 
 
 # --------------------------------------------------------------------------
-# Shared entrypoint helpers - both Mintray_TUI.py and Mintray_GUI.py call
+# Shared entrypoint helpers - Mintray.py (and Mintray_GUI.py) call
 # these so neither renderer duplicates CLI/startup logic.
 # --------------------------------------------------------------------------
 
@@ -1231,7 +1351,10 @@ def HandleCliCommands(args: argparse.Namespace) -> bool:
         service = DetectServiceForInterface(iface)
         DeleteFullTunnelRoutes(TUN_GW, check=False)
         print("cleared full-tunnel routes. If DNS looks wrong, reset it manually:")
-        print(f"  networksetup -setdnsservers '{service}' empty")
+        if PLATFORM == "Linux":
+            print(f"  resolvectl dns '{service}' \"\"")
+        else:
+            print(f"  networksetup -setdnsservers '{service}' empty")
         return True
 
     return False

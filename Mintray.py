@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Mintray_TUI.py - curses terminal renderer for MintRay.
+Mintray.py - curses terminal renderer for MintRay.
 
 Presentation only. All backend logic (Xray config, subscriptions, ping
 testing, macOS route/DNS handling, the App state machine) lives in
 Mintray_Core.py, imported unchanged.
 
-Run: sudo -E python3 Mintray_TUI.py [--subscription-url ... | other flags]
+Run: sudo -E python3 Mintray.py [--subscription-url ... | other flags]
 """
 from __future__ import annotations
 import curses
@@ -39,9 +39,10 @@ def SafeAddStr(stdscr: "curses._CursesWindow", y: int, x: int, s: str, attr: int
 
 
 COLOR_ACCENT = 1  # mint green - branding/headers/active items
-COLOR_GOOD = 2    # green - connected, low ping
-COLOR_WARN = 3    # yellow - medium ping
-COLOR_BAD = 4     # red - disconnected, high ping, timeout
+COLOR_GOOD = 2    # green - connected, ok ping
+COLOR_WARN = 3    # yellow/orange - mediocre ping
+COLOR_BAD = 4     # red - disconnected, bad ping
+COLOR_GREAT = 5   # blue - excellent ping
 HAS_COLOR = False
 
 
@@ -59,6 +60,7 @@ def InitColors() -> None:
     curses.init_pair(COLOR_GOOD, curses.COLOR_GREEN, bg)
     curses.init_pair(COLOR_WARN, curses.COLOR_YELLOW, bg)
     curses.init_pair(COLOR_BAD, curses.COLOR_RED, bg)
+    curses.init_pair(COLOR_GREAT, curses.COLOR_BLUE, bg)
     HAS_COLOR = True
 
 
@@ -68,10 +70,12 @@ def Pair(n: int) -> int:
 
 def PingColor(ms: float | None) -> int:
     if ms is None:
-        return Pair(COLOR_BAD)
-    if ms < 150:
+        return curses.A_DIM
+    if ms < 100:
+        return Pair(COLOR_GREAT)
+    if ms < 200:
         return Pair(COLOR_GOOD)
-    if ms < 300:
+    if ms <= 500:
         return Pair(COLOR_WARN)
     return Pair(COLOR_BAD)
 
@@ -102,10 +106,16 @@ def DrawSettings(stdscr, w, h, fields, selected, editing, edit_buffer, app):
         if is_selected and editing:
             value_line = edit_buffer + "\u2588"
             SafeAddStr(stdscr, y + 1, 4, value_line[: max(w - 5, 0)], Pair(COLOR_ACCENT))
+            shown_value = edit_buffer
         else:
-            current_val = str(getattr(app.args, field, core.SETTINGS_DEFAULTS[field]))
-            SafeAddStr(stdscr, y + 1, 4, current_val[: max(w - 5, 0)], curses.A_DIM)
-        y += 3
+            shown_value = str(getattr(app.args, field, core.SETTINGS_DEFAULTS[field]))
+            SafeAddStr(stdscr, y + 1, 4, shown_value[: max(w - 5, 0)], curses.A_DIM)
+        y += 2
+        if field == "ping_url" and shown_value == core.SETTINGS_DEFAULTS["ping_url"]:
+            tip = "tip: we recommend keeping default internet check provider, GrapheneOS respects privacy, Google doesn't"
+            SafeAddStr(stdscr, y, 4, tip[: max(w - 5, 0)], curses.A_DIM)
+            y += 1
+        y += 1
 
     footer_y = h - 2
     DrawDivider(stdscr, footer_y - 1, w)
@@ -183,7 +193,7 @@ def RunTui(stdscr: "curses._CursesWindow", app: App) -> None:
             ("●", t2s_color), (" up" if t2s_ok else " down", t2s_color),
         ])
         if app.connected:
-            line3 = f"uptime {int(app.proc.Uptime())}s    device {app.net.tun_device}"
+            line3 = f"uptime {core.FormatDuration(app.proc.Uptime())}    device {app.net.tun_device}"
             SafeAddStr(stdscr, 3, 0, line3, curses.A_DIM)
             if app.speed_up_bps or app.speed_down_bps:
                 DrawSegments(stdscr, 3, len(line3) + 4, [
@@ -237,7 +247,7 @@ def RunTui(stdscr: "curses._CursesWindow", app: App) -> None:
 
             if i in app.pings:
                 val = app.pings[i]
-                ping_str = (f"{val:.0f}ms" if val is not None else "timeout").rjust(ping_w)
+                ping_str = (f"{val:.0f}ms" if val is not None else "n/a").rjust(ping_w)
                 ping_attr = base if is_selected else PingColor(val)
             else:
                 ping_str = "".rjust(ping_w)
