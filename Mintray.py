@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""
-Mintray.py - curses terminal renderer for MintRay.
-
-Presentation only. All backend logic (Xray config, subscriptions, ping
-testing, macOS route/DNS handling, the App state machine) lives in
-Mintray_Core.py, imported unchanged.
-
-Run: sudo -E python3 Mintray.py [--subscription-url ... | other flags]
-"""
 from __future__ import annotations
 import curses
 import os
@@ -322,5 +313,4 @@ def main() -> None:
     curses.wrapper(RunTui, app)
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
