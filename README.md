@@ -19,6 +19,17 @@ Mintray is a proxy client for macOS and Linux. For your privacy and freedom. No 
 - **Simple design** _(a clean, simple terminal design that works for everyone)_
 ## Get MintRay
 - [**GitHub Releases**](https://github.com/dev4ones-space/Mintray/releases) _(always up-to-date, first priority)_
+## How to use
+### Mintray supports connections _(servers)_ by subsciption provider/s and JSON Xray
+- **How to add subsciption to Mintray**:
+  ```bash
+  mintray --add-sub [https URL] 
+  ```
+- **How to add Xray conf to Mintray**:
+  ```bash
+  mintray --config [xray conf]
+  ```
+#### Note! Please use `--help` for more information on arguments, some of the, may resolve your request/issue
 ## Some other info
 1. UDP may not work properly - Xray core thing _(we cannot fix or do anything about this, so something that uses UDP may just not work, ex. Whatsapp calls or just WebRTC in general)_
 2. Windows isn't supported. _(1. No build-in stdlib - no curses (that's the main interface, required). 2. Too strict (like no actual root implementation) 3. Network compatbility issues - it's gotta be a another implementation of entire network stack (macOS & Linux are basically compatible with each other in a safe way))_
