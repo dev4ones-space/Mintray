@@ -2,10 +2,10 @@
 Mintray 是一款适用于 macOS 和 Linux 的代理客户端。为了你的隐私与自由而生。无任何依赖，仅提供 TUI 界面。_(即使在没有桌面环境的裸机服务器上，通过 SSH 也能正常运行)_
 ## 演示
 **Linux** _(CachyOS，使用 Console 作为终端)_
-![Linux 1.1 Demo](demo/Linux_1.1.png)
+![Linux 1.1 Demo](demo/Showcase_Linux_5STBL-2.png.png)
 
 **macOS** _(Tahoe，使用 Warp 作为终端)_
-![macOS 1.1 Demo](demo/macOS_1.1.png)
+![macOS 1.1 Demo](demo/Showcase_macOS_5STBL-2.png.png)
 ## 为什么选择 Mintray
 - **无依赖。** _(在裸机 Linux 和 macOS 上无需任何依赖即可实现全部功能)_
 - **在 macOS 和 Linux 上使用方式完全一致** _(无需为每个平台单独学习不同应用)_

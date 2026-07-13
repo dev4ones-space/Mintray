@@ -9,7 +9,7 @@ Mintray is a proxy client for macOS and Linux. For your privacy and freedom. No 
 **Linux** _(CachyOS, Console as terminal)_
 ![Linux 1.1 2 (5STBL-2) Showcase](demo/Showcase_Linux_5STBL-2.png)
 
-**macOS** _(Tahoe, Warp as terminal)_
+**macOS** _(Tahoe, Warp as terminal. Terminal has white background because macOS captures only the window without background)_
 ![macOS 1.1 2 (5STBL-2) Showcase](demo/Showcase_macOS_5STBL-2.png)
 ## Why Mintray
 - **No dependencies.** _(Works without ANY dependencies on bare Linux & macOS machine in full capabilities)_
