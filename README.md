@@ -2,8 +2,8 @@
 
 Mintray is a proxy client for macOS and Linux. For your privacy and freedom. No dependencies, TUI only. _(works even on bare servers where no desktop env just fine over SSH)_
 
-- [Russian language/Русский язык/俄语长](README_RU.md)
-- (Chinese language/中文/Китайский язык)[README_CH.md]
+- [Russian language/Русский язык/俄语长](README_RU.md) _(will be not updated)_
+- [Chinese language/中文/Китайский язык](README_CH.md) _(will be not updated)_
 ## Demo 
 
 **Linux** _(CachyOS, Console as terminal)_
