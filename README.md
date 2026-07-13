@@ -25,10 +25,12 @@ Mintray is a proxy client for macOS and Linux. For your privacy and freedom. No 
   ```bash
   mintray --add-sub [https URL] 
   ```
+  _(after that Mintray will work, this command is enough/max to work)_
 - **How to add Xray conf to Mintray**:
   ```bash
   mintray --config [xray conf]
   ```
+  _(after that Mintray will work, this command is enough/max to work)_
 #### Note! Please use `--help` for more information on arguments, some of the, may resolve your request/issue
 ## Some other info
 1. UDP may not work properly - Xray core thing _(we cannot fix or do anything about this, so something that uses UDP may just not work, ex. Whatsapp calls or just WebRTC in general)_
