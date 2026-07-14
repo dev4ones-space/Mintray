@@ -4,6 +4,7 @@ Mintray is a proxy client for macOS and Linux. For your privacy and freedom. No 
 
 - [Russian language/Русский язык/俄语长](README_RU.md) _(will be not updated)_
 - [Chinese language/中文/Китайский язык](README_CH.md) _(will be not updated)_
+
 ## Showcase/Demo
 
 **Linux** _(CachyOS, Console as terminal)_
@@ -11,14 +12,17 @@ Mintray is a proxy client for macOS and Linux. For your privacy and freedom. No 
 
 **macOS** _(Tahoe, Warp as terminal. Terminal has white background because macOS captures only the window without background)_
 ![macOS 1.1 2 (5STBL-2) Showcase](demo/Showcase_macOS_5STBL-2.png)
+-----------
 ## Why Mintray
 - **No dependencies.** _(Works without ANY dependencies on bare Linux & macOS machine in full capabilities)_
 - **Works the same way on macOS and Linux** _(no separate app to learn per platform)_
 - **TUN Mode.** _(routes all traffic except local trough proxy)_
 - **Lightweight** _(no heavy app service, just a Python3)_
 - **Simple design** _(a clean, simple terminal design that works for everyone)_
+-----------
 ## Get MintRay
 - [**GitHub Releases**](https://github.com/dev4ones-space/Mintray/releases) _(always up-to-date, first priority)_
+-----------
 ## How to use
 ### Mintray supports connections _(servers)_ by subsciption provider/s and JSON Xray
 - **How to add subsciption to Mintray**:
@@ -32,13 +36,14 @@ Mintray is a proxy client for macOS and Linux. For your privacy and freedom. No 
   ```
   _(after that Mintray will work, this command is enough/max to work)_
 #### Note! Please use `--help` for more information on arguments, some of the, may resolve your request/issue
+-----------
 ## Some other info
 1. UDP may not work properly - Xray core thing _(we cannot fix or do anything about this, so something that uses UDP may just not work, ex. Whatsapp calls or just WebRTC in general)_
 2. Windows isn't supported. _(1. No build-in stdlib - no curses (that's the main interface, required). 2. Too strict (like no actual root implementation) 3. Network compatbility issues - it's gotta be a another implementation of entire network stack (macOS & Linux are basically compatible with each other in a safe way))_
 3. It may not run on Linux - everything has been tested enough and noted that it works in full capabilities on Linux and macOS, but Linux has too many distros families and we cannot optimize app for each one. Here's the list of confirmed working OS:
 - macOS _(100% compatbility for Ventura and higher, updates never touch things that may break)_
 - CachyOS & Arch (Linux distro, Arch Linux based distros will probably work just fine)_
-
+--------
 ## Building from source
 
 ```bash
@@ -88,4 +93,10 @@ or
 python3 -m PyInstaller Mintray.spec
 ```
 
-### After all of that it, fully working executable binray should be build in `dist/Mintray` 
+### After all of that it, fully working executable binary should be build in `dist/Mintray` 
+------
+## Notice for users
+#### We, at YZYWORKS, think that privacy is a human right and everyone deserves it. 
+#### We are pro-privacy, and we never log that you do trough client or through our services.
+#### [Claim free proxy for your privacy](mailto:proxy@yzyworks.com). We provide free plan with 512GB for month with unlimited speeds, if you want - you can order paid plan that provides same things, just unlimited traffic.
+#### This is not an ad, this is a recommendation of our service, which is free for everyone _(we do not discriminate or care where you are or what nation you in - for everyone)_
