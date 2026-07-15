@@ -1,6 +1,8 @@
 # Mintray
 
-Mintray is a proxy client for macOS and Linux. For your privacy and freedom. No dependencies, TUI only _(works even on bare servers where no desktop env just fine over SSH)_. Project is open-source and GitHub issues & email are there for any bugs.
+Mintray is a proxy client for macOS and Linux. For your privacy and freedom. 
+
+No dependencies _(released binaries only)_, TUI only. Project is open-source and GitHub issues & email are there for any bugs.
 
 - [Russian language/Русский язык/俄语长](README_RU.md) _(will be not maintained)_
 - [Chinese language/中文/Китайский язык](README_CH.md) _(will be not maintained)_
@@ -19,14 +21,16 @@ _support for protos like Hysteria2 & VMess & Trojan is coming soon_
 ![macOS 1.1 2 (5STBL-2) Showcase](demo/Showcase_macOS_5STBL-2.png)
 -----------
 ## Why Mintray
-- **No dependencies.** _(Works without ANY dependencies on bare Linux & macOS machine in full capabilities)_
+- **No dependencies** _(Works without ANY dependencies on bare Linux & macOS machine in full capabilities with binary)_
 - **Works the same way on macOS and Linux** _(no separate app to learn per platform)_
-- **TUN Mode.** _(routes all traffic except local trough proxy)_
-- **Lightweight** _(no heavy app service, just a Python3)_
+- **TUN Mode** _(routes all traffic except local trough proxy)_
+- **Lightweight** _(just a Python3, any machine can run without any issues)_
 - **Simple design** _(a clean, simple terminal design that works for everyone)_
+- **Open source** _(most clients are close-source, we are 100% transparent on everything here)_
 -----------
 ## Get MintRay
-- [**GitHub Releases**](https://github.com/dev4ones-space/Mintray/releases) _(always up-to-date, first priority)_
+- **Stable Versions**: [**GitHub Releases**](https://github.com/dev4ones-space/Mintray/releases)
+- **Beta/Alpha Versions**: [**GitHub Actions**](https://github.com/dev4ones-space/Mintray/actions) _(versions that may not work for someone or just be unstable)_
 -----------
 ## How to use
 ### Mintray supports connections _(servers)_ by subsciption provider/s and JSON Xray
@@ -34,20 +38,16 @@ _support for protos like Hysteria2 & VMess & Trojan is coming soon_
   ```bash
   mintray --add-sub [https URL] 
   ```
-  _(after that Mintray will work, this command is enough/max to work)_
-- **How to add Xray conf to Mintray**:
-  ```bash
-  mintray --config [xray conf]
-  ```
-  _(after that Mintray will work, this command is enough/max to work)_
+  _(after that Mintray will work, basically how on showcases - max setup acquired)_
+  
 #### Note! Please use `--help` for more information on arguments, some of the, may resolve your request/issue
 -----------
 ## Some other info
-1. UDP may not work properly - Xray core thing _(we cannot fix or do anything about this, so something that uses UDP may just not work, ex. Whatsapp calls or just WebRTC in general)_
+1. UDP may not work properly on Vless - Xray core thing _(we cannot fix or do anything about this, so something that uses UDP may just not work, ex. Whatsapp calls or just WebRTC in general)_
 2. Windows isn't supported. _(1. No build-in stdlib - no curses (that's the main interface, required). 2. Too strict (like no actual root implementation) 3. Network compatbility issues - it's gotta be a another implementation of entire network stack (macOS & Linux are basically compatible with each other in a safe way))_
 3. It may not run on Linux - everything has been tested enough and noted that it works in full capabilities on Linux and macOS, but Linux has too many distros families and we cannot optimize app for each one. Here's the list of confirmed working OS:
 - macOS _(100% compatbility for Ventura and higher, updates never touch things that may break)_
-- CachyOS & Arch (Linux distro, Arch Linux based distros will probably work just fine)_
+- CachyOS & Arch (Linux distro. Arch Linux based distros will work, Debian and others may not work)_
 --------
 ## Building from source
 
