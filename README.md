@@ -2,8 +2,12 @@
 
 Mintray is a proxy client for macOS and Linux. For your privacy and freedom. No dependencies, TUI only _(works even on bare servers where no desktop env just fine over SSH)_. Project is open-source and GitHub issues & email (in commits only, GitHub pinned email are not read) are there for any bugs.
 
-- [Russian language/Русский язык/俄语长](README_RU.md) _(will be not updated)_
-- [Chinese language/中文/Китайский язык](README_CH.md) _(will be not updated)_
+- [Russian language/Русский язык/俄语长](README_RU.md) _(will be not maintained)_
+- [Chinese language/中文/Китайский язык](README_CH.md) _(will be not maintained)_
+
+## Supported protocols
+- `Vless`: by Xray package
+_support for protos like Hysteria2 & VMess & Trojan is coming soon_
 
 ## Showcase/Demo
 
