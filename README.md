@@ -1,12 +1,13 @@
 # Mintray
 
-Mintray is a proxy client for macOS and Linux. For your privacy and freedom. No dependencies, TUI only _(works even on bare servers where no desktop env just fine over SSH)_. Project is open-source and GitHub issues & email (in commits only, GitHub pinned email are not read) are there for any bugs.
+Mintray is a proxy client for macOS and Linux. For your privacy and freedom. No dependencies, TUI only _(works even on bare servers where no desktop env just fine over SSH)_. Project is open-source and GitHub issues & email are there for any bugs.
 
 - [Russian language/Русский язык/俄语长](README_RU.md) _(will be not maintained)_
 - [Chinese language/中文/Китайский язык](README_CH.md) _(will be not maintained)_
 
 ## Supported protocols
-- `Vless`: by Xray package
+- **Vless** _(includes full support for all transports, encryption)_. Provided by Xray package (`bin/xray`)
+
 _support for protos like Hysteria2 & VMess & Trojan is coming soon_
 
 ## Showcase/Demo
@@ -101,6 +102,6 @@ python3 -m PyInstaller Mintray.spec
 ------
 ## Notice for users
 #### We, at YZYWORKS, think that privacy is a human right and everyone deserves it. 
-#### We are pro-privacy, and we never log that you do trough client or through our services.
-#### [Claim free proxy for your privacy](mailto:proxy@yzyworks.com). We provide free plan with 512GB for month with unlimited speeds, if you want - you can order paid plan that provides same things, just unlimited traffic.
+#### We are pro-privacy, and we never log that you do trough this client.
+#### [Get free Vless proxy for YOUR privacy](mailto:proxy@yzyworks.com). _(no log policy, full privacy policy is available by [here]([https://yzyworks.com/mdr?source=yzy-proxy/PrivacyPolicy.md](https://yzyworks.com/mdr?source=yzyproxy/PrivacyPolicy.md)))_ We provide free plan with 512GB of traffic for month with unlimited speeds, if you want - you can order paid plan that provides same things, just unlimited traffic.
 #### This is not an ad, this is a recommendation of our service, which is free for everyone _(we do not discriminate or care where you are or what nation you in - for everyone)_
