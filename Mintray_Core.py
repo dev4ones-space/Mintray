@@ -2,20 +2,19 @@
 from __future__ import annotations
 import argparse, atexit, base64, concurrent.futures, dataclasses, gzip, ipaddress, json, os, shutil, signal, socket, ssl, struct, platform, subprocess, sys, threading, time, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
-STATE_DIR = Path.home() / ".mintray"; CONFIG_PATH = STATE_DIR / "xray-config.json"; SERVERS_CACHE = STATE_DIR / "servers.json"; LOG_PATH = STATE_DIR / "mintray.log"; XRAY_PROC_LOG = STATE_DIR / "xray-proc.log"; TUN2SOCKS_PROC_LOG = STATE_DIR / "tun2socks-proc.log"; PLATFORM = platform.system(); TUN_DEVICE_DEFAULT = "utun123" if PLATFORM == "Darwin" else "tun123"; TUN_ADDR = "198.18.0.1"; TUN_GW = "198.18.0.1"; SOCKS_PORT_DEFAULT = 10808; PING_HOST = "time.grapheneos.org"; PING_PATH = "/generate_204"; PING_URL_DEFAULT = f"https://{PING_HOST}{PING_PATH}"; PING_BASE_PORT = 19000; STATS_PORT = 10085; SUBS_PATH = STATE_DIR / "subscriptions.json"; SUB_META_PATH = STATE_DIR / "subscription_meta.json"; SETTINGS_PATH = STATE_DIR / "settings.json"; SETTINGS_DEFAULTS = {"xray_bin": "xray", "tun2socks_bin": "tun2socks", "ping_url": PING_URL_DEFAULT}
+STATE_DIR = Path.home() / ".mintray"; CONFIG_PATH = STATE_DIR / "xray-config.json"; SERVERS_CACHE = STATE_DIR / "servers.json"; LOG_PATH = STATE_DIR / "mintray.log"; XRAY_PROC_LOG = STATE_DIR / "xray-proc.log"; TUN2SOCKS_PROC_LOG = STATE_DIR / "tun2socks-proc.log"; PLATFORM = platform.system(); TUN_DEVICE_DEFAULT = "utun123" if PLATFORM == "Darwin" else "tun123"; TUN_ADDR = "198.18.0.1"; TUN_GW = "198.18.0.1"; SOCKS_PORT_DEFAULT = 10808; PING_HOST = "time.grapheneos.org"; PING_PATH = "/generate_204"; PING_URL_DEFAULT = f"https://{PING_HOST}{PING_PATH}"; PING_BASE_PORT = 19000; STATS_PORT = 10085; SUBS_PATH = STATE_DIR / "subscriptions.json"; SUB_META_PATH = STATE_DIR / "subscription_meta.json"; SETTINGS_PATH = STATE_DIR / "settings.json"; SETTINGS_DEFAULTS = {"xray_bin": "xray", "tun2socks_bin": "tun2socks", "ping_url": PING_URL_DEFAULT}; PROTOCOL_BACKEND_BIN = {}
 class Main:
     # Variables
     # Classes
     class Version: # Not used anywhere, only for code viewing ig
-        ManageVersion = 10
-        Version = 1.0
-        SubVersion = 5
+        ManageVersion = 6
+        Version = 1.2
+        SubVersion = 1
         SubComment = 'CORE'
         BuildType = 'Stable'  # Could be: Unstable (a default release, but may contain major/small bugs), Stable, Alpha (early versions, mostly very unstable or contains unfinished parts)
         __build_type_show__ = {'Alpha': 'ALPH', 'Stable': 'STBL', 'Unstable': 'BETA'}[BuildType]
         BuildShow = f'{ManageVersion}{__build_type_show__}-{SubVersion}{SubComment}'
-    class GlobalCache:
-        SettingsFields = ['xray_bin', 'tun2socks_bin', 'ping_url']
+    class GlobalCache: SettingsFields = ['xray_bin', 'tun2socks_bin', 'ping_url', 'user_agent']
     class Activities:
         @classmethod
         def Log(cls, msg: str) -> None: STATE_DIR.mkdir(parents=True, exist_ok=True); open(LOG_PATH, "a").write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
@@ -52,8 +51,8 @@ class Main:
             s = int(seconds); days, s = divmod(s, 86400); hours, s = divmod(s, 3600); minutes, s = divmod(s, 60)
             return f"{days}d {hours}h" if days > 0 else f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m {s}s" if minutes > 0 else f"{s}s"
         @classmethod
-        def FetchSubscription(cls, url: str) -> list[dict]:
-            req = urllib.request.Request(url, headers={"User-Agent": "mintray/1", "Accept-Encoding": "gzip"})
+        def FetchSubscription(cls, url: str, user_agent: str | None = None) -> list[dict]:
+            req = urllib.request.Request(url, headers={"User-Agent": user_agent or SETTINGS_DEFAULTS["user_agent"], "Accept-Encoding": "gzip"})
             try:
                 with urllib.request.urlopen(req, timeout=15) as resp: raw = resp.read(); headers = resp.headers
             except urllib.error.URLError as e:
@@ -64,10 +63,10 @@ class Main:
             try: return cls.DecodeSubscriptionBody(raw)
             except Exception: (STATE_DIR / "servers.raw").write_bytes(raw); raise
         @classmethod
-        def FetchAllSubscriptions(cls, urls: list[str]) -> list[dict]:
+        def FetchAllSubscriptions(cls, urls: list[str], user_agent: str | None = None) -> list[dict]:
             all_servers: list[dict] = []; errors: list[str] = []
             for url in urls:
-                try: all_servers.extend(cls.FetchSubscription(url))
+                try: all_servers.extend(cls.FetchSubscription(url, user_agent))
                 except Exception as e: errors.append(f"{url}: {e}"); cls.Log(f"subscription fetch failed for {url}: {e}")
             if errors and not all_servers: raise RuntimeError("all subscriptions failed: " + " | ".join(errors))
             if errors: cls.Log(f"continuing with {len(all_servers)} servers from the subscriptions that did work; failures: {errors}")
@@ -144,7 +143,9 @@ class Main:
         def ParseShareLink(cls, uri: str) -> dict:
             scheme = uri.split("://", 1)[0]
             if scheme == "vless": return cls.ParseVlessUri(uri)
-            raise ValueError(f"{scheme}:// share links aren't implemented yet (only vless:// is)")
+            if scheme == "trojan": return cls.ParseTrojanUri(uri)
+            if scheme == "ss": return cls.ParseSsUri(uri)
+            raise ValueError(f"{scheme}:// share links aren't implemented yet (only vless://, trojan://, ss:// are)")
         @classmethod
         def ParseVlessUri(cls, uri: str) -> dict:
             u = urllib.parse.urlparse(uri); q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
@@ -158,6 +159,28 @@ class Main:
             grpc = {"serviceName": q["serviceName"]} if "serviceName" in q else {}
             stream = {"network": network, "security": security, **({"realitySettings": reality} if security == "reality" else {"tlsSettings": tls} if security == "tls" else {}), **({"xhttpSettings": xhttp} if network == "xhttp" else {"wsSettings": ws} if network == "ws" else {"grpcSettings": grpc} if network == "grpc" else {})}
             return {"tag": name, "protocol": "vless", "settings": {"vnext": [{"address": u.hostname, "port": u.port, "users": [user]}]}, "streamSettings": stream}
+        @classmethod
+        def ParseTrojanUri(cls, uri: str) -> dict:
+            u = urllib.parse.urlparse(uri); q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
+            name = urllib.parse.unquote(u.fragment) or f"{u.hostname}:{u.port}"
+            password = urllib.parse.unquote(u.username or "")
+            network, security = q.get("type", "tcp"), q.get("security", "tls")
+            reality = {"serverName": q.get("sni", ""), "publicKey": q.get("pbk", ""), "shortId": q.get("sid", ""), **({"fingerprint": q["fp"]} if "fp" in q else {}), **({"spiderX": q["spx"]} if "spx" in q else {})}
+            tls = {**({"serverName": q["sni"]} if "sni" in q else {}), **({"fingerprint": q["fp"]} if "fp" in q else {})}
+            xhttp = {k: q[k] for k in ("path", "mode", "host") if k in q}
+            ws = {**({"path": q["path"]} if "path" in q else {}), **({"headers": {"Host": q["host"]}} if "host" in q else {})}
+            grpc = {"serviceName": q["serviceName"]} if "serviceName" in q else {}
+            stream = {"network": network, "security": security, **({"realitySettings": reality} if security == "reality" else {"tlsSettings": tls} if security == "tls" else {}), **({"xhttpSettings": xhttp} if network == "xhttp" else {"wsSettings": ws} if network == "ws" else {"grpcSettings": grpc} if network == "grpc" else {})}
+            return {"tag": name, "protocol": "trojan", "settings": {"servers": [{"address": u.hostname, "port": u.port, "password": password}]}, "streamSettings": stream}
+        @classmethod
+        def ParseSsUri(cls, uri: str) -> dict:
+            u = urllib.parse.urlparse(uri); name = urllib.parse.unquote(u.fragment) or f"{u.hostname}:{u.port}"
+            if u.password is not None: method, password = urllib.parse.unquote(u.username), urllib.parse.unquote(u.password)
+            else:
+                blob = urllib.parse.unquote(u.username or ""); padded = blob + "=" * (-len(blob) % 4)
+                try: method, password = base64.urlsafe_b64decode(padded).decode("utf-8").split(":", 1)
+                except Exception as e: raise ValueError(f"ss:// userinfo isn't valid method:password or base64(method:password): {e}") from e
+            return {"tag": name, "protocol": "shadowsocks", "settings": {"servers": [{"address": u.hostname, "port": u.port, "method": method, "password": password}]}}
         @classmethod
         def LoadCachedServers(cls) -> list[dict]: return json.loads(SERVERS_CACHE.read_text()) if SERVERS_CACHE.exists() else []
         @classmethod
@@ -355,6 +378,7 @@ class Main:
             p.add_argument("--tun2socks-bin", default="tun2socks")
             p.add_argument("--dns", default="1.1.1.1,1.0.0.1")
             p.add_argument("--ping-url", default=PING_URL_DEFAULT, help="URL used for the connectivity-check ping (default: https://time.grapheneos.org/generate_204)")
+            p.add_argument("--user-agent", default=SETTINGS_DEFAULTS["user_agent"], help="User-Agent header sent when fetching subscriptions")
             p.add_argument("--cleanup", action="store_true", help="tear down routes/DNS from a previous crashed run and exit")
             p.add_argument("--add-sub", metavar="URL", help="save a subscription URL for every future run (supports more than one - servers get merged)")
             p.add_argument("--remove-sub", metavar="URL_OR_N", help="remove a saved subscription, by URL or by its number from --list-subs")
@@ -370,7 +394,7 @@ class Main:
             if args.list_subs: cls.PrintSubs(cls.LoadSavedSubs()); return True
             if args.add_sub:
                 subs = cls.AddSub(args.add_sub); print(f"saved: {args.add_sub}")
-                try: print(f"validated - found {len(cls.FetchSubscription(args.add_sub))} server(s)")
+                try: print(f"validated - found {len(cls.FetchSubscription(args.add_sub, args.user_agent))} server(s)")
                 except Exception as e: print(f"warning: couldn't validate it right now ({e}) - saved anyway, will retry next run")
                 print(f"\n{len(subs)} subscription(s) saved:"); cls.PrintSubs(subs); return True
             if args.remove_sub: subs, removed = cls.RemoveSub(args.remove_sub); print(f"removed: {removed}" if removed else f"no match for {args.remove_sub!r}"); print(f"\n{len(subs)} subscription(s) remaining:"); cls.PrintSubs(subs); return True
@@ -380,6 +404,10 @@ class Main:
                 cls.DeleteFullTunnelRoutes(TUN_GW, check=False)
                 print("cleared full-tunnel routes. If DNS looks wrong, reset it manually:"); print(f"  resolvectl dns '{service}' \"\"" if PLATFORM == "Linux" else f"  networksetup -setdnsservers '{service}' empty"); return True
             return False
+        @classmethod
+        def RequiredBinaries(cls, protocol: str) -> tuple[str, str]: return (PROTOCOL_BACKEND_BIN.get(protocol, "xray_bin"), "tun2socks_bin")
+        @classmethod
+        def FilterServersByBinaries(cls, servers: list[dict], missing: list[str]) -> tuple[list[dict], int]: kept = [s for s in servers if not any(b in missing for b in cls.RequiredBinaries(s.get("protocol", "")))]; return kept, len(servers) - len(kept)
         @classmethod
         def StartApp(cls, args: argparse.Namespace) -> "App":
             if os.geteuid() != 0: print("MintRay needs root (TUN device, routes, DNS). Run with sudo -E."); sys.exit(1)
@@ -411,35 +439,38 @@ class ProcMgr:
 class App:
     def __init__(self, args: argparse.Namespace):
         self.args = args; self.net = NetState(tun_device=args.tun_device); self.proc = ProcMgr(args.xray_bin, args.tun2socks_bin)
-        self.servers: list[dict] = []; self.current_server: dict | None = None; self.pings: dict[int, float | None] = {}
+        self.servers: list[dict] = []; self.current_server: dict | None = None; self.pings: dict[int, float | None] = {}; self.missing_binaries: list[str] = []
         self.connected = False; self.status_msg = "idle"; self.speed_up_bps = 0.0; self.speed_down_bps = 0.0
         self._stats_stop = threading.Event(); self._ping_busy = False; self._stats_thread: threading.Thread | None = None
         atexit.register(self.Disconnect); signal.signal(signal.SIGINT, lambda *_: self._SignalExit()); signal.signal(signal.SIGTERM, lambda *_: self._SignalExit())
     def _SignalExit(self) -> None: self.Disconnect(); sys.exit(0)
     def CheckBinaries(self) -> None:
-        missing = [b for b in (self.args.xray_bin, self.args.tun2socks_bin) if not shutil.which(b)]
-        if missing:
-            hint = "install xray from your distro's package (e.g. apt install xray, or github.com/XTLS/Xray-core/releases); download tun2socks-linux-amd64 (or arm64) from github.com/xjasonlyu/tun2socks/releases" if PLATFORM == "Linux" else "brew install xray; download tun2socks from github.com/xjasonlyu/tun2socks/releases"
-            raise RuntimeError(f"missing binaries on PATH: {missing}. {hint}")
+        self.missing_binaries = [b for b in ("xray_bin", "tun2socks_bin") if not shutil.which(getattr(self.args, b, ""))]
+        if self.missing_binaries:
+            shown = [getattr(self.args, b) for b in self.missing_binaries]
+            hint = "install xray from your distro's package (e.g. apt install xray, or github.com/XTLS/Xray-core/releases); download tun2socks-linux-amd64 (or arm64) from github.com/xjasonlyu/tun2socks/releases" if PLATFORM == "Linux" else "brew install xray; download tun2socks from github.com/xjasonlyu/tun2socks/releases"; Main.Activities.Log(f"missing binaries on PATH: {shown} - servers needing them will be hidden from the list. {hint}")
     def LoadServers(self) -> None:
         if self.args.config: self.servers = [Main.Activities.LoadLocalOutbound(self.args.config)]
         else:
             urls = [self.args.subscription_url] if self.args.subscription_url else Main.Activities.LoadSavedSubs()
             if urls:
-                try:
-                    self.servers = Main.Activities.FetchAllSubscriptions(urls); STATE_DIR.mkdir(parents=True, exist_ok=True); SERVERS_CACHE.write_text(json.dumps(self.servers, indent=2))
+                try: self.servers = Main.Activities.FetchAllSubscriptions(urls, self.args.user_agent); STATE_DIR.mkdir(parents=True, exist_ok=True); SERVERS_CACHE.write_text(json.dumps(self.servers, indent=2))
                 except Exception as e:
                     Main.Activities.Log(f"subscription fetch failed: {e}"); self.servers = Main.Activities.LoadCachedServers()
                     if not self.servers: raise
             else: self.servers = Main.Activities.LoadCachedServers()
         if not self.servers: raise RuntimeError("no servers available - use --subscription-url, save one with --add-sub, use --config, or there's no cache from a previous run either")
-        self.current_server = self.servers[0]; self.pings = {}
+        if not self.args.config:
+            self.servers, hidden = Main.Activities.FilterServersByBinaries(self.servers, self.missing_binaries)
+            if hidden: self.status_msg = f"{hidden} server(s) hidden - missing binaries for their protocol"
+        self.current_server = self.servers[0] if self.servers else None; self.pings = {}
     def RefreshSubscription(self) -> None:
         urls = [self.args.subscription_url] if self.args.subscription_url else Main.Activities.LoadSavedSubs()
         if not urls: self.status_msg = "no subscription URL(s) configured - see --add-sub"; return
         try:
-            self.servers = Main.Activities.FetchAllSubscriptions(urls); STATE_DIR.mkdir(parents=True, exist_ok=True); SERVERS_CACHE.write_text(json.dumps(self.servers, indent=2))
-            self.pings = {}; self.status_msg = f"refreshed: {len(self.servers)} servers from {len(urls)} subscription(s)"
+            self.servers = Main.Activities.FetchAllSubscriptions(urls, self.args.user_agent); STATE_DIR.mkdir(parents=True, exist_ok=True); SERVERS_CACHE.write_text(json.dumps(self.servers, indent=2))
+            self.servers, hidden = Main.Activities.FilterServersByBinaries(self.servers, self.missing_binaries)
+            self.pings = {}; self.status_msg = f"refreshed: {len(self.servers)} servers from {len(urls)} subscription(s)" + (f", {hidden} hidden (missing binaries)" if hidden else "")
         except Exception as e: self.status_msg = f"refresh failed: {e}"
     def PingAll(self) -> None:
         if not self.servers: self.status_msg = "no servers to ping"; return
@@ -493,8 +524,7 @@ class App:
         prev: tuple[int, int, float] | None = None
         while not self._stats_stop.is_set() and self.connected:
             try:
-                stats = Main.Activities.QueryStats(self.args.xray_bin, STATS_PORT)
-                up, down, now = stats.get("outbound>>>proxy>>>traffic>>>uplink", 0), stats.get("outbound>>>proxy>>>traffic>>>downlink", 0), time.monotonic()
+                stats = Main.Activities.QueryStats(self.args.xray_bin, STATS_PORT); up, down, now = stats.get("outbound>>>proxy>>>traffic>>>uplink", 0), stats.get("outbound>>>proxy>>>traffic>>>downlink", 0), time.monotonic()
                 if prev is not None:
                     dt = now - prev[2]
                     if dt > 0: self.speed_up_bps, self.speed_down_bps = max((up - prev[0]) / dt, 0.0) * 8, max((down - prev[1]) / dt, 0.0) * 8
@@ -513,4 +543,8 @@ class App:
         if was_connected: self.Disconnect()
         self.current_server = self.servers[index]
         if was_connected: self.Connect()
-gc = Main.GlobalCache
+SETTINGS_DEFAULTS["user_agent"] = f"Mintray/{Main.Version.BuildShow}"; gc = Main.GlobalCache
+# woo!
+# it doesn't get any better that this!
+# - ceo@business.net // lentra (2023)
+# Privacy is a human right. Google, Microsoft, Apple don't think that it is. Don't let them think that being private makes you a terrorist or a drug dealer.

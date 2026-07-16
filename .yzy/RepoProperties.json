@@ -1,0 +1,10 @@
+{
+  "name": "Mintray",
+  "visibility": "Public",
+  "description": "TUI proxy client.",
+  "issuesEmail": "yeezy@yzyworks.com",
+  "homepage": "yzyworks.com/Mintray",
+  "topics": ['xray', 'proxy-client', 'hysteria2', 'xhttp', 'vless', 'socks5', 'ss', 'trojan', 'xray-client', 'hysteria2-client', 'open-source'],
+  "license": "MIT",
+  "defaultBranch": "main"
+}

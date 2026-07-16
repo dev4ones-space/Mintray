@@ -4,21 +4,22 @@ Mintray is a proxy client for macOS and Linux. For your privacy and freedom.
 
 No dependencies _(released binaries only)_, TUI only. Project is open-source and GitHub issues & email are there for any bugs.
 
-- [Russian language/Русский язык/俄语长](README_RU.md) _(will be not maintained)_
-- [Chinese language/中文/Китайский язык](README_CH.md) _(will be not maintained)_
+- [Russian language/Русский язык/俄语长](indexRussian.md) _(will be not maintained)_
+- [Chinese language/中文/Китайский язык](indexChinese.md) _(will be not maintained)_
 
 ## Supported protocols
 - **Vless** _(includes full support for all transports, encryption)_. Provided by Xray package (`bin/xray`)
-
-_support for protos like Hysteria2 & VMess & Trojan is coming soon_
-
-## Showcase/Demo
-
+- **Socks5**
+- **Trojan**. Provided by Xray package (`bin/xray`)
+- **Shadowsocks**. Provided by Xray package (`bin/xray`)
+- **Hysteria2**. Provided by Hysteria2 package (`bin/hysteria2`)
+-----------
+## Showcase
 **Linux** _(CachyOS, Console as terminal)_
-![Linux 1.1 2 (5STBL-2) Showcase](demo/Showcase_Linux_5STBL-2.png)
+![Linux 1.2 2 (6STBL-1) Showcase](https://yzyworks.com/git/Mintray/demo/Showcase_Linux.png)
 
 **macOS** _(Tahoe, Warp as terminal. Terminal has white background because macOS captures only the window without background)_
-![macOS 1.1 2 (5STBL-2) Showcase](demo/Showcase_macOS_5STBL-2.png)
+![macOS 1.2 1 (6STBL-1) Showcase](https://yzyworks.com/git/Mintray/demo/Showcase_macOS.png)
 -----------
 ## Why Mintray
 - **No dependencies** _(Works without ANY dependencies on bare Linux & macOS machine in full capabilities with binary)_
@@ -26,19 +27,19 @@ _support for protos like Hysteria2 & VMess & Trojan is coming soon_
 - **TUN Mode** _(routes all traffic except local trough proxy)_
 - **Lightweight** _(just a Python3, any machine can run without any issues)_
 - **Simple design** _(a clean, simple terminal design that works for everyone)_
-- **Open source** _(most clients are close-source, we are 100% transparent on everything here)_
+- **Open source** _(most clients are closed-source, we are 100% transparent on everything here)_
 -----------
-## Get MintRay
-- **Stable Versions**: [**GitHub Releases**](https://github.com/dev4ones-space/Mintray/releases)
-- **Beta/Alpha Versions**: [**GitHub Actions**](https://github.com/dev4ones-space/Mintray/actions) _(versions that may not work for someone or just be unstable)_
+## Get Mintray _(released binaries & repo)_
+- [**Mintray Repository View**](https://yzyworks.com/git/Mintray/) _(first priority)_
+- [**GitHub**](https://github.com/dev4ones-space/Mintray/releases) _(second priority, only Releases & README)_
 -----------
 ## How to use
-### Mintray supports connections _(servers)_ by subsciption provider/s and JSON Xray
+### Mintray supports connections _(servers)_ by subsciption provider/s
 - **How to add subsciption to Mintray**:
   ```bash
   mintray --add-sub [https URL] 
   ```
-  _(after that Mintray will work, basically how on showcases - max setup acquired)_
+  _(after that Mintray will work)_
   
 #### Note! Please use `--help` for more information on arguments, some of the, may resolve your request/issue
 -----------
@@ -52,7 +53,7 @@ _support for protos like Hysteria2 & VMess & Trojan is coming soon_
 ## Building from source
 
 ```bash
-git clone https://github.com/dev4ones-space/Mintray.git
+git clone https://yzyworks.com/git/Mintray/.git
 cd Mintray
 ```
 Grab last release of binaries in following repos
@@ -70,7 +71,7 @@ pyinstaller Mintray.spec
 _(all of this requires Python3 to be installed in your `$PATH`, download installer from [python.org](https://www.python.org/downloads/))_
 1. Clone the repo && cd after: _(`cd` changes the directory your terminal is currently in)_
 ```bash
-git clone https://github.com/dev4ones-space/Mintray.git && cd Mintray
+git clone https://yzyworks.com/git/Mintray/.git && cd Mintray
 ```
 2. Collect binaries for your current device: _(specifications like device arch (x84_64, aarch64/arm) and OS (darwin for macOS or just linux))_
 - **[XTLS/Xray-core](https://github.com/XTLS/Xray-core/releases)**

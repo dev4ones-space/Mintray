@@ -4,9 +4,9 @@ import curses, os, locale; import Mintray_Core as core; from Mintray_Core import
 class Main:
     # Classes
     class Version:
-        ManageVersion = 5
-        Version = 1.1
-        SubVersion = 2
+        ManageVersion = 6
+        Version = 1.2
+        SubVersion = 1
         SubComment = ''
         BuildType = 'Stable'  # Could be: Unstable (a default release, but may contain major/small bugs), Stable, Alpha (early versions, mostly very unstable or contains unfinished parts)
         __build_type_show__ = {'Alpha': 'ALPH', 'Stable': 'STBL', 'Unstable': 'BETA'}[BuildType]
@@ -48,8 +48,7 @@ class Main:
             cls.SafeAddStr(stdscr, 3, 0, "enter to edit a field (starts blank) \u00b7 enter again to save \u00b7 esc to cancel", curses.A_DIM)
             y = 5
             for i, field in enumerate(fields):
-                label = {"xray_bin": "xray binary path", "tun2socks_bin": "tun2socks binary path", "ping_url": "ping url"}[field]; is_selected = i == selected; marker = "› " if is_selected else "  "
-                cls.SafeAddStr(stdscr, y, 0, f"{marker}{label}", (curses.A_BOLD if is_selected else curses.A_DIM))
+                label = {"xray_bin": "xray binary path", "tun2socks_bin": "tun2socks binary path", "ping_url": "ping url", "user_agent": "user agent"}[field]; is_selected = i == selected; marker = "› " if is_selected else "  "; cls.SafeAddStr(stdscr, y, 0, f"{marker}{label}", (curses.A_BOLD if is_selected else curses.A_DIM))
                 if is_selected and editing: cls.SafeAddStr(stdscr, y + 1, 4, (edit_buffer + "\u2588")[: max(w - 5, 0)], cls.Pair(COLOR_ACCENT)); shown_value = edit_buffer
                 else: shown_value = str(getattr(app.args, field, core.SETTINGS_DEFAULTS[field])); cls.SafeAddStr(stdscr, y + 1, 4, shown_value[: max(w - 5, 0)], curses.A_DIM)
                 y += 2
@@ -72,7 +71,7 @@ class Main:
                     if editing:
                         if key in (10, 13):
                             field = core.gc.SettingsFields[settings_selected]
-                            if edit_buffer.strip(): core.Main.Activities.SaveSettings({field: edit_buffer}); setattr(app.args, field, edit_buffer); app.status_msg = f"{ {"xray_bin": "xray binary path", "tun2socks_bin": "tun2socks binary path", "ping_url": "ping url"}[field]} saved"
+                            if edit_buffer.strip(): core.Main.Activities.SaveSettings({field: edit_buffer}); setattr(app.args, field, edit_buffer); app.status_msg = f"{ {"xray_bin": "xray binary path", "tun2socks_bin": "tun2socks binary path", "ping_url": "ping url", "user_agent": "user agent"}[field]} saved"
                             editing = False
                         elif key == 27: editing = False
                         elif key in (curses.KEY_BACKSPACE, 127, 8): edit_buffer = edit_buffer[:-1]
