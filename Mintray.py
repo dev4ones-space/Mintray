@@ -4,7 +4,7 @@ import curses, os, locale; import Mintray_Core as core; from Mintray_Core import
 class Main:
     # Classes
     class Version:
-        ManageVersion = 6
+        ManageVersion = 7
         Version = 1.2
         SubVersion = 1
         SubComment = ''
@@ -48,7 +48,7 @@ class Main:
             cls.SafeAddStr(stdscr, 3, 0, "enter to edit a field (starts blank) \u00b7 enter again to save \u00b7 esc to cancel", curses.A_DIM)
             y = 5
             for i, field in enumerate(fields):
-                label = {"xray_bin": "xray binary path", "tun2socks_bin": "tun2socks binary path", "ping_url": "ping url", "user_agent": "user agent"}[field]; is_selected = i == selected; marker = "› " if is_selected else "  "; cls.SafeAddStr(stdscr, y, 0, f"{marker}{label}", (curses.A_BOLD if is_selected else curses.A_DIM))
+                label = {"xray_bin": "xray binary path", "tun2socks_bin": "tun2socks binary path", "hysteria_bin": "hysteria2 binary path", "ping_url": "ping url", "user_agent": "user agent"}[field]; is_selected = i == selected; marker = "› " if is_selected else "  "; cls.SafeAddStr(stdscr, y, 0, f"{marker}{label}", (curses.A_BOLD if is_selected else curses.A_DIM))
                 if is_selected and editing: cls.SafeAddStr(stdscr, y + 1, 4, (edit_buffer + "\u2588")[: max(w - 5, 0)], cls.Pair(COLOR_ACCENT)); shown_value = edit_buffer
                 else: shown_value = str(getattr(app.args, field, core.SETTINGS_DEFAULTS[field])); cls.SafeAddStr(stdscr, y + 1, 4, shown_value[: max(w - 5, 0)], curses.A_DIM)
                 y += 2
@@ -71,7 +71,7 @@ class Main:
                     if editing:
                         if key in (10, 13):
                             field = core.gc.SettingsFields[settings_selected]
-                            if edit_buffer.strip(): core.Main.Activities.SaveSettings({field: edit_buffer}); setattr(app.args, field, edit_buffer); app.status_msg = f"{ {"xray_bin": "xray binary path", "tun2socks_bin": "tun2socks binary path", "ping_url": "ping url", "user_agent": "user agent"}[field]} saved"
+                            if edit_buffer.strip(): core.Main.Activities.SaveSettings({field: edit_buffer}); setattr(app.args, field, edit_buffer); app.status_msg = f"{ {"xray_bin": "xray binary path", "tun2socks_bin": "tun2socks binary path", "hysteria_bin": "hysteria2 binary path", "ping_url": "ping url", "user_agent": "user agent"}[field]} saved"
                             editing = False
                         elif key == 27: editing = False
                         elif key in (curses.KEY_BACKSPACE, 127, 8): edit_buffer = edit_buffer[:-1]
@@ -88,7 +88,7 @@ class Main:
                 xray_ok, t2s_ok = app.proc.Alive()
                 state_color = cls.Pair(COLOR_GOOD) if app.connected else cls.Pair(COLOR_BAD)
                 xray_color = cls.Pair(COLOR_GOOD) if xray_ok else cls.Pair(COLOR_BAD); t2s_color = cls.Pair(COLOR_GOOD) if t2s_ok else cls.Pair(COLOR_BAD)
-                cls.DrawSegments(stdscr, 2, 0, [("● ", state_color | curses.A_BOLD), ("connected" if app.connected else "disconnected", state_color | curses.A_BOLD), ("    xray ", curses.A_DIM), ("●", xray_color), (" up" if xray_ok else " down", xray_color), ("    tun2socks ", curses.A_DIM), ("●", t2s_color), (" up" if t2s_ok else " down", t2s_color), ])
+                cls.DrawSegments(stdscr, 2, 0, [("● ", state_color | curses.A_BOLD), ("connected" if app.connected else "disconnected", state_color | curses.A_BOLD), (f"    {app.proc.upstream_label} ", curses.A_DIM), ("●", xray_color), (" up" if xray_ok else " down", xray_color), ("    tun2socks ", curses.A_DIM), ("●", t2s_color), (" up" if t2s_ok else " down", t2s_color), ])
                 if app.connected:
                     line3 = f"uptime {core.Main.Activities.FormatDuration(app.proc.Uptime())}    device {app.net.tun_device}"
                     cls.SafeAddStr(stdscr, 3, 0, line3, curses.A_DIM)

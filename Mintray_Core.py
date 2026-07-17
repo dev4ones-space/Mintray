@@ -2,19 +2,21 @@
 from __future__ import annotations
 import argparse, atexit, base64, concurrent.futures, dataclasses, gzip, ipaddress, json, os, shutil, signal, socket, ssl, struct, platform, subprocess, sys, threading, time, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
-STATE_DIR = Path.home() / ".mintray"; CONFIG_PATH = STATE_DIR / "xray-config.json"; SERVERS_CACHE = STATE_DIR / "servers.json"; LOG_PATH = STATE_DIR / "mintray.log"; XRAY_PROC_LOG = STATE_DIR / "xray-proc.log"; TUN2SOCKS_PROC_LOG = STATE_DIR / "tun2socks-proc.log"; PLATFORM = platform.system(); TUN_DEVICE_DEFAULT = "utun123" if PLATFORM == "Darwin" else "tun123"; TUN_ADDR = "198.18.0.1"; TUN_GW = "198.18.0.1"; SOCKS_PORT_DEFAULT = 10808; PING_HOST = "time.grapheneos.org"; PING_PATH = "/generate_204"; PING_URL_DEFAULT = f"https://{PING_HOST}{PING_PATH}"; PING_BASE_PORT = 19000; STATS_PORT = 10085; SUBS_PATH = STATE_DIR / "subscriptions.json"; SUB_META_PATH = STATE_DIR / "subscription_meta.json"; SETTINGS_PATH = STATE_DIR / "settings.json"; SETTINGS_DEFAULTS = {"xray_bin": "xray", "tun2socks_bin": "tun2socks", "ping_url": PING_URL_DEFAULT}; PROTOCOL_BACKEND_BIN = {}
+STATE_DIR = Path.home() / ".mintray"; CONFIG_PATH = STATE_DIR / "xray-config.json"; HYSTERIA_CONFIG_PATH = STATE_DIR / "hysteria-config.json"; SERVERS_CACHE = STATE_DIR / "servers.json"; LOG_PATH = STATE_DIR / "mintray.log"; XRAY_PROC_LOG = STATE_DIR / "xray-proc.log"; HYSTERIA_PROC_LOG = STATE_DIR / "hysteria-proc.log"; TUN2SOCKS_PROC_LOG = STATE_DIR / "tun2socks-proc.log"; PLATFORM = platform.system(); TUN_DEVICE_DEFAULT = "utun123" if PLATFORM == "Darwin" else "tun123"; TUN_ADDR = "198.18.0.1"; TUN_GW = "198.18.0.1"; SOCKS_PORT_DEFAULT = 10808; PING_HOST = "time.grapheneos.org"; PING_PATH = "/generate_204"; PING_URL_DEFAULT = f"https://{PING_HOST}{PING_PATH}"; PING_BASE_PORT = 19000; STATS_PORT = 10085; SUBS_PATH = STATE_DIR / "subscriptions.json"; SUB_META_PATH = STATE_DIR / "subscription_meta.json"; SETTINGS_PATH = STATE_DIR / "settings.json"; SETTINGS_DEFAULTS = {"xray_bin": "xray", "tun2socks_bin": "tun2socks", "hysteria_bin": "hysteria", "ping_url": PING_URL_DEFAULT}
+PROTOCOL_BACKEND_BIN = {"hysteria2": "hysteria_bin"}  # protocol -> settings field for the binary that backs it; unlisted protocols fall back to xray_bin since xray is the default backend
+UNCONNECTABLE_PROTOCOLS = set()  # protocols that parse fine but have no backend wired up yet - empty for now, kept as a hook for future additions (e.g. TUIC)
 class Main:
     # Variables
     # Classes
     class Version: # Not used anywhere, only for code viewing ig
-        ManageVersion = 6
+        ManageVersion = 7
         Version = 1.2
         SubVersion = 1
-        SubComment = 'CORE'
+        SubComment = ''
         BuildType = 'Stable'  # Could be: Unstable (a default release, but may contain major/small bugs), Stable, Alpha (early versions, mostly very unstable or contains unfinished parts)
         __build_type_show__ = {'Alpha': 'ALPH', 'Stable': 'STBL', 'Unstable': 'BETA'}[BuildType]
         BuildShow = f'{ManageVersion}{__build_type_show__}-{SubVersion}{SubComment}'
-    class GlobalCache: SettingsFields = ['xray_bin', 'tun2socks_bin', 'ping_url', 'user_agent']
+    class GlobalCache: SettingsFields = ['xray_bin', 'tun2socks_bin', 'hysteria_bin', 'ping_url', 'user_agent']
     class Activities:
         @classmethod
         def Log(cls, msg: str) -> None: STATE_DIR.mkdir(parents=True, exist_ok=True); open(LOG_PATH, "a").write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
@@ -37,6 +39,13 @@ class Main:
             return config
         @classmethod
         def WriteXrayConfig(cls, config: dict) -> Path: STATE_DIR.mkdir(parents=True, exist_ok=True); CONFIG_PATH.write_text(json.dumps(config, indent=2)); return CONFIG_PATH
+        @classmethod
+        def BuildHysteriaConfig(cls, outbound: dict, socks_port: int) -> dict:
+            s = outbound.get("settings", {})
+            tls = {**({"sni": s["sni"]} if "sni" in s else {}), **({"insecure": s["insecure"]} if "insecure" in s else {}), **({"pinSHA256": s["pin_sha256"]} if "pin_sha256" in s else {})}
+            return {"server": f"{s.get('server', '')}:{s.get('port', 443)}", "auth": s.get("auth", ""), "socks5": {"listen": f"127.0.0.1:{socks_port}"}, **({"tls": tls} if tls else {}), **({"obfs": {"type": s["obfs"], s["obfs"]: {"password": s.get("obfs_password", "")}}} if "obfs" in s else {})}
+        @classmethod
+        def WriteHysteriaConfig(cls, config: dict) -> Path: STATE_DIR.mkdir(parents=True, exist_ok=True); HYSTERIA_CONFIG_PATH.write_text(json.dumps(config, indent=2)); return HYSTERIA_CONFIG_PATH
         @classmethod
         def QueryStats(cls, xray_bin: str, stats_port: int) -> dict[str, int]:
             result = subprocess.run([xray_bin, "api", "statsquery", f"--server=127.0.0.1:{stats_port}"], capture_output=True, text=True, timeout=3)
@@ -131,7 +140,7 @@ class Main:
             if found is not None: return found
             raise RuntimeError(f"unrecognized JSON subscription shape: {payload if isinstance(payload, list) else list(payload)}")
         @classmethod
-        def IsShareLink(cls, s: str) -> bool: return s.startswith(("vless://", "vmess://", "trojan://", "ss://"))
+        def IsShareLink(cls, s: str) -> bool: return s.startswith(("vless://", "vmess://", "trojan://", "ss://", "hysteria2://", "hy2://"))
         @classmethod
         def TryDecodeBase64Links(cls, text: str) -> list[str]:
             padded = text + "=" * (-len(text) % 4)
@@ -145,7 +154,8 @@ class Main:
             if scheme == "vless": return cls.ParseVlessUri(uri)
             if scheme == "trojan": return cls.ParseTrojanUri(uri)
             if scheme == "ss": return cls.ParseSsUri(uri)
-            raise ValueError(f"{scheme}:// share links aren't implemented yet (only vless://, trojan://, ss:// are)")
+            if scheme in ("hysteria2", "hy2"): return cls.ParseHysteria2Uri(uri)
+            raise ValueError(f"{scheme}:// share links aren't implemented yet (only vless://, trojan://, ss://, hysteria2://, hy2:// are)")
         @classmethod
         def ParseVlessUri(cls, uri: str) -> dict:
             u = urllib.parse.urlparse(uri); q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
@@ -181,6 +191,14 @@ class Main:
                 try: method, password = base64.urlsafe_b64decode(padded).decode("utf-8").split(":", 1)
                 except Exception as e: raise ValueError(f"ss:// userinfo isn't valid method:password or base64(method:password): {e}") from e
             return {"tag": name, "protocol": "shadowsocks", "settings": {"servers": [{"address": u.hostname, "port": u.port, "method": method, "password": password}]}}
+        @classmethod
+        def ParseHysteria2Uri(cls, uri: str) -> dict:
+            u = urllib.parse.urlparse(uri); q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
+            try: port = u.port or 443
+            except ValueError: raise ValueError("hysteria2 multi-port/port-hopping addresses (e.g. host:1000-2000) aren't supported yet - only a single host:port")
+            name = urllib.parse.unquote(u.fragment) or f"{u.hostname}:{port}"
+            settings = {"server": u.hostname, "port": port, "auth": urllib.parse.unquote(u.username or ""), **({"sni": q["sni"]} if "sni" in q else {}), **({"insecure": q["insecure"] == "1"} if "insecure" in q else {}), **({"obfs": q["obfs"]} if "obfs" in q else {}), **({"obfs_password": q["obfs-password"]} if "obfs-password" in q else {}), **({"pin_sha256": q["pinSHA256"]} if "pinSHA256" in q else {})}
+            return {"tag": name, "protocol": "hysteria2", "settings": settings}
         @classmethod
         def LoadCachedServers(cls) -> list[dict]: return json.loads(SERVERS_CACHE.read_text()) if SERVERS_CACHE.exists() else []
         @classmethod
@@ -327,6 +345,14 @@ class Main:
                 time.sleep(0.2)
             return False
         @classmethod
+        def WaitForSocksPort(cls, port: int, timeout: float = 8.0) -> bool:
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.3): return True
+                except OSError: time.sleep(0.2)
+            return False
+        @classmethod
         def BringUpTunInterface(cls, device: str) -> None:
             if PLATFORM == "Linux": cls.RunCmd("ip", "addr", "add", f"{TUN_ADDR}/32", "dev", device); cls.RunCmd("ip", "link", "set", device, "up"); return
             cls.RunCmd("ifconfig", device, TUN_ADDR, TUN_GW, "up")
@@ -354,7 +380,9 @@ class Main:
         @classmethod
         def ExtractProxyHost(cls, outbound: dict) -> str:
             try:
-                settings = outbound.get("settings", {}); vnext = settings.get("vnext") or settings.get("servers")
+                settings = outbound.get("settings", {})
+                if outbound.get("protocol") == "hysteria2": return settings.get("server", "")
+                vnext = settings.get("vnext") or settings.get("servers")
                 return vnext[0].get("address", "") if vnext else ""
             except (AttributeError, IndexError, KeyError): return ""
         @classmethod
@@ -367,6 +395,7 @@ class Main:
         def ResolveBinaryDefaults(cls, args: argparse.Namespace) -> None:
             if args.xray_bin == "xray": args.xray_bin = cls.ResolveBundledBinary("xray") or args.xray_bin
             if args.tun2socks_bin == "tun2socks": args.tun2socks_bin = cls.ResolveBundledBinary("tun2socks") or args.tun2socks_bin
+            if args.hysteria_bin == "hysteria": args.hysteria_bin = cls.ResolveBundledBinary("hysteria") or args.hysteria_bin
         @classmethod
         def ParseArgs(cls) -> argparse.Namespace:
             p = argparse.ArgumentParser(description=__doc__)
@@ -376,6 +405,7 @@ class Main:
             p.add_argument("--tun-device", default=TUN_DEVICE_DEFAULT)
             p.add_argument("--xray-bin", default="xray")
             p.add_argument("--tun2socks-bin", default="tun2socks")
+            p.add_argument("--hysteria-bin", default=SETTINGS_DEFAULTS["hysteria_bin"], help="hysteria2 client binary (optional - only needed for hysteria2 servers)")
             p.add_argument("--dns", default="1.1.1.1,1.0.0.1")
             p.add_argument("--ping-url", default=PING_URL_DEFAULT, help="URL used for the connectivity-check ping (default: https://time.grapheneos.org/generate_204)")
             p.add_argument("--user-agent", default=SETTINGS_DEFAULTS["user_agent"], help="User-Agent header sent when fetching subscriptions")
@@ -407,7 +437,7 @@ class Main:
         @classmethod
         def RequiredBinaries(cls, protocol: str) -> tuple[str, str]: return (PROTOCOL_BACKEND_BIN.get(protocol, "xray_bin"), "tun2socks_bin")
         @classmethod
-        def FilterServersByBinaries(cls, servers: list[dict], missing: list[str]) -> tuple[list[dict], int]: kept = [s for s in servers if not any(b in missing for b in cls.RequiredBinaries(s.get("protocol", "")))]; return kept, len(servers) - len(kept)
+        def FilterServersByBinaries(cls, servers: list[dict], missing: list[str]) -> tuple[list[dict], int]: kept = [s for s in servers if s.get("protocol", "") not in UNCONNECTABLE_PROTOCOLS and not any(b in missing for b in cls.RequiredBinaries(s.get("protocol", "")))]; return kept, len(servers) - len(kept)
         @classmethod
         def StartApp(cls, args: argparse.Namespace) -> "App":
             if os.geteuid() != 0: print("MintRay needs root (TUN device, routes, DNS). Run with sudo -E."); sys.exit(1)
@@ -418,43 +448,53 @@ class Main:
 @dataclasses.dataclass
 class NetState: interface: str = ""; gateway: str = ""; service: str = ""; original_dns: list[str] = dataclasses.field(default_factory=list); proxy_host: str = ""; tun_device: str = TUN_DEVICE_DEFAULT; routes_added: bool = False; dns_changed: bool = False; host_route_added: bool = False
 class ProcMgr:
-    def __init__(self, xray_bin: str, tun2socks_bin: str):
-        self.xray_bin = xray_bin; self.tun2socks_bin = tun2socks_bin
-        self.xray_proc: subprocess.Popen | None = None; self.tun2socks_proc: subprocess.Popen | None = None; self.started_at: float = 0.0
+    def __init__(self, xray_bin: str, tun2socks_bin: str, hysteria_bin: str = ""):
+        self.xray_bin = xray_bin; self.tun2socks_bin = tun2socks_bin; self.hysteria_bin = hysteria_bin
+        self.xray_proc: subprocess.Popen | None = None; self.hysteria_proc: subprocess.Popen | None = None; self.tun2socks_proc: subprocess.Popen | None = None; self.started_at: float = 0.0
+        self.upstream_label = "xray"; self.upstream_log_path = XRAY_PROC_LOG
     def StartXray(self, config_path: Path) -> None:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         self.xray_proc = subprocess.Popen([self.xray_bin, "run", "-c", str(config_path)], stdout=(log_f := open(XRAY_PROC_LOG, "w")), stderr=log_f)
+        self.upstream_label, self.upstream_log_path = "xray", XRAY_PROC_LOG
+    def StartHysteria(self, config_path: Path) -> None:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        self.hysteria_proc = subprocess.Popen([self.hysteria_bin, "client", "-c", str(config_path)], stdout=(log_f := open(HYSTERIA_PROC_LOG, "w")), stderr=log_f)
+        self.upstream_label, self.upstream_log_path = "hysteria2", HYSTERIA_PROC_LOG
     def StartTun2socks(self, device: str, socks_port: int, interface: str) -> None:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         self.tun2socks_proc = subprocess.Popen([self.tun2socks_bin, "-device", device, "-proxy", f"socks5://127.0.0.1:{socks_port}", "-interface", interface, "-loglevel", "warn"], stdout=(log_f := open(TUN2SOCKS_PROC_LOG, "w")), stderr=log_f)
         self.started_at = time.time()
-    def Alive(self) -> tuple[bool, bool]: return self.xray_proc is not None and self.xray_proc.poll() is None, self.tun2socks_proc is not None and self.tun2socks_proc.poll() is None
+    def Alive(self) -> tuple[bool, bool]:
+        upstream = self.hysteria_proc if self.hysteria_proc is not None else self.xray_proc
+        return upstream is not None and upstream.poll() is None, self.tun2socks_proc is not None and self.tun2socks_proc.poll() is None
     def Uptime(self) -> float: return time.time() - self.started_at if self.started_at else 0.0
     def StopAll(self) -> None:
-        for proc in (self.tun2socks_proc, self.xray_proc):
+        for proc in (self.tun2socks_proc, self.xray_proc, self.hysteria_proc):
             if proc and proc.poll() is None:
                 try: proc.terminate(); proc.wait(timeout=5)
                 except subprocess.TimeoutExpired: proc.kill()
-        self.xray_proc = None; self.tun2socks_proc = None; self.started_at = 0.0
+        self.xray_proc = None; self.hysteria_proc = None; self.tun2socks_proc = None; self.started_at = 0.0
 class App:
     def __init__(self, args: argparse.Namespace):
-        self.args = args; self.net = NetState(tun_device=args.tun_device); self.proc = ProcMgr(args.xray_bin, args.tun2socks_bin)
+        self.args = args; self.net = NetState(tun_device=args.tun_device); self.proc = ProcMgr(args.xray_bin, args.tun2socks_bin, args.hysteria_bin)
         self.servers: list[dict] = []; self.current_server: dict | None = None; self.pings: dict[int, float | None] = {}; self.missing_binaries: list[str] = []
         self.connected = False; self.status_msg = "idle"; self.speed_up_bps = 0.0; self.speed_down_bps = 0.0
         self._stats_stop = threading.Event(); self._ping_busy = False; self._stats_thread: threading.Thread | None = None
         atexit.register(self.Disconnect); signal.signal(signal.SIGINT, lambda *_: self._SignalExit()); signal.signal(signal.SIGTERM, lambda *_: self._SignalExit())
     def _SignalExit(self) -> None: self.Disconnect(); sys.exit(0)
     def CheckBinaries(self) -> None:
-        self.missing_binaries = [b for b in ("xray_bin", "tun2socks_bin") if not shutil.which(getattr(self.args, b, ""))]
+        self.missing_binaries = [b for b in ("xray_bin", "tun2socks_bin", "hysteria_bin") if not shutil.which(getattr(self.args, b, ""))]
         if self.missing_binaries:
             shown = [getattr(self.args, b) for b in self.missing_binaries]
-            hint = "install xray from your distro's package (e.g. apt install xray, or github.com/XTLS/Xray-core/releases); download tun2socks-linux-amd64 (or arm64) from github.com/xjasonlyu/tun2socks/releases" if PLATFORM == "Linux" else "brew install xray; download tun2socks from github.com/xjasonlyu/tun2socks/releases"; Main.Activities.Log(f"missing binaries on PATH: {shown} - servers needing them will be hidden from the list. {hint}")
+            hint = "install xray from your distro's package (e.g. apt install xray, or github.com/XTLS/Xray-core/releases); download tun2socks-linux-amd64 (or arm64) from github.com/xjasonlyu/tun2socks/releases; hysteria (optional, only needed for hysteria2 servers) from github.com/apernet/hysteria/releases" if PLATFORM == "Linux" else "brew install xray; download tun2socks from github.com/xjasonlyu/tun2socks/releases; hysteria (optional, only needed for hysteria2 servers) from github.com/apernet/hysteria/releases"
+            Main.Activities.Log(f"missing binaries on PATH: {shown} - servers needing them will be hidden from the list. {hint}")
     def LoadServers(self) -> None:
         if self.args.config: self.servers = [Main.Activities.LoadLocalOutbound(self.args.config)]
         else:
             urls = [self.args.subscription_url] if self.args.subscription_url else Main.Activities.LoadSavedSubs()
             if urls:
-                try: self.servers = Main.Activities.FetchAllSubscriptions(urls, self.args.user_agent); STATE_DIR.mkdir(parents=True, exist_ok=True); SERVERS_CACHE.write_text(json.dumps(self.servers, indent=2))
+                try:
+                    self.servers = Main.Activities.FetchAllSubscriptions(urls, self.args.user_agent); STATE_DIR.mkdir(parents=True, exist_ok=True); SERVERS_CACHE.write_text(json.dumps(self.servers, indent=2))
                 except Exception as e:
                     Main.Activities.Log(f"subscription fetch failed: {e}"); self.servers = Main.Activities.LoadCachedServers()
                     if not self.servers: raise
@@ -462,7 +502,7 @@ class App:
         if not self.servers: raise RuntimeError("no servers available - use --subscription-url, save one with --add-sub, use --config, or there's no cache from a previous run either")
         if not self.args.config:
             self.servers, hidden = Main.Activities.FilterServersByBinaries(self.servers, self.missing_binaries)
-            if hidden: self.status_msg = f"{hidden} server(s) hidden - missing binaries for their protocol"
+            if hidden: self.status_msg = f"{hidden} server(s) hidden - missing binaries or unsupported protocol"
         self.current_server = self.servers[0] if self.servers else None; self.pings = {}
     def RefreshSubscription(self) -> None:
         urls = [self.args.subscription_url] if self.args.subscription_url else Main.Activities.LoadSavedSubs()
@@ -470,7 +510,7 @@ class App:
         try:
             self.servers = Main.Activities.FetchAllSubscriptions(urls, self.args.user_agent); STATE_DIR.mkdir(parents=True, exist_ok=True); SERVERS_CACHE.write_text(json.dumps(self.servers, indent=2))
             self.servers, hidden = Main.Activities.FilterServersByBinaries(self.servers, self.missing_binaries)
-            self.pings = {}; self.status_msg = f"refreshed: {len(self.servers)} servers from {len(urls)} subscription(s)" + (f", {hidden} hidden (missing binaries)" if hidden else "")
+            self.pings = {}; self.status_msg = f"refreshed: {len(self.servers)} servers from {len(urls)} subscription(s)" + (f", {hidden} hidden (missing binaries or unsupported protocol)" if hidden else "")
         except Exception as e: self.status_msg = f"refresh failed: {e}"
     def PingAll(self) -> None:
         if not self.servers: self.status_msg = "no servers to ping"; return
@@ -499,15 +539,21 @@ class App:
         if proxy_host and not Main.Activities.IsIpAddress(proxy_host):
             try: proxy_ip = socket.gethostbyname(proxy_host); Main.Activities.Log(f"resolved proxy host {proxy_host!r} -> {proxy_ip} for routing")
             except socket.gaierror as e: raise RuntimeError(f"couldn't resolve proxy host {proxy_host!r} to add its bypass route: {e}")
-        config_path = Main.Activities.WriteXrayConfig(Main.Activities.BuildXrayConfig(outbound, self.args.socks_port, stats_port=STATS_PORT))
+        is_hysteria = outbound.get("protocol") == "hysteria2"
+        if is_hysteria: config_path = Main.Activities.WriteHysteriaConfig(Main.Activities.BuildHysteriaConfig(outbound, self.args.socks_port))
+        else: config_path = Main.Activities.WriteXrayConfig(Main.Activities.BuildXrayConfig(outbound, self.args.socks_port, stats_port=STATS_PORT))
         iface, gw = Main.Activities.DetectDefaultRoute(); service = Main.Activities.DetectServiceForInterface(iface)
         self.net.interface, self.net.gateway, self.net.service, self.net.proxy_host = iface, gw, service, proxy_ip
         self.net.original_dns = Main.Activities.GetCurrentDns(service)
         non_ip = [d for d in self.net.original_dns if not Main.Activities.IsIpAddress(d)]
         if non_ip: Main.Activities.Log(f"heads up: current DNS entries on {service!r} aren't plain IPs: {non_ip} - " + ("likely DNS-over-TLS/HTTPS configured in systemd-resolved. resolvectl can't restore that on disconnect - you may need to re-set it manually afterward." if PLATFORM == "Linux" else f"likely an Encrypted DNS (DoH/DoT) provider set in System Settings > Network > {service} > DNS, not classic DNS servers. networksetup can't restore that on disconnect - you may need to re-select it there manually afterward."))
-        self.proc.StartXray(config_path); time.sleep(0.5)
-        xray_ok, _ = self.proc.Alive()
-        if not xray_ok: raise RuntimeError(f"xray died on startup: {Main.Activities.ReadLogTail(XRAY_PROC_LOG)}")
+        if is_hysteria:
+            self.proc.StartHysteria(config_path)
+            if not Main.Activities.WaitForSocksPort(self.args.socks_port, timeout=8.0): raise RuntimeError(f"hysteria2 never opened its local SOCKS5 port within 8s (probably can't reach or authenticate to the server): {Main.Activities.ReadLogTail(HYSTERIA_PROC_LOG)}")
+        else:
+            self.proc.StartXray(config_path); time.sleep(0.5)
+            xray_ok, _ = self.proc.Alive()
+            if not xray_ok: raise RuntimeError(f"xray died on startup: {Main.Activities.ReadLogTail(XRAY_PROC_LOG)}")
         if proxy_ip: Main.Activities.AddHostRoute(proxy_ip, gw); self.net.host_route_added = True
         self.proc.StartTun2socks(self.net.tun_device, self.args.socks_port, iface); time.sleep(0.5)
         _, t2s_ok = self.proc.Alive()
@@ -519,12 +565,13 @@ class App:
         Main.Activities.AddFullTunnelRoutes(TUN_GW); self.net.routes_added = True
         Main.Activities.SetDns(service, self.args.dns.split(",")); self.net.dns_changed = True
         self.connected = True; self.status_msg = "connected"
-        self._stats_stop.clear(); self._stats_thread = threading.Thread(target=self._StatsLoop, daemon=True); self._stats_thread.start()
+        if not is_hysteria: self._stats_stop.clear(); self._stats_thread = threading.Thread(target=self._StatsLoop, daemon=True); self._stats_thread.start()
     def _StatsLoop(self) -> None:
         prev: tuple[int, int, float] | None = None
         while not self._stats_stop.is_set() and self.connected:
             try:
-                stats = Main.Activities.QueryStats(self.args.xray_bin, STATS_PORT); up, down, now = stats.get("outbound>>>proxy>>>traffic>>>uplink", 0), stats.get("outbound>>>proxy>>>traffic>>>downlink", 0), time.monotonic()
+                stats = Main.Activities.QueryStats(self.args.xray_bin, STATS_PORT)
+                up, down, now = stats.get("outbound>>>proxy>>>traffic>>>uplink", 0), stats.get("outbound>>>proxy>>>traffic>>>downlink", 0), time.monotonic()
                 if prev is not None:
                     dt = now - prev[2]
                     if dt > 0: self.speed_up_bps, self.speed_down_bps = max((up - prev[0]) / dt, 0.0) * 8, max((down - prev[1]) / dt, 0.0) * 8
@@ -544,7 +591,3 @@ class App:
         self.current_server = self.servers[index]
         if was_connected: self.Connect()
 SETTINGS_DEFAULTS["user_agent"] = f"Mintray/{Main.Version.BuildShow}"; gc = Main.GlobalCache
-# woo!
-# it doesn't get any better that this!
-# - ceo@business.net // lentra (2023)
-# Privacy is a human right. Google, Microsoft, Apple don't think that it is. Don't let them think that being private makes you a terrorist or a drug dealer.
