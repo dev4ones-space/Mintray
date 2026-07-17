@@ -2,24 +2,24 @@
 
 Mintray is a proxy client for macOS and Linux. For your privacy and freedom. 
 
-No dependencies _(released binaries only)_, TUI only. Project is open-source and GitHub issues & email are there for any bugs.
+No dependencies, TUI only. Project is open-source and Issues tab & email are there for any bugs.
 
-- [Russian language/Русский язык/俄语长](indexRussian.md) _(will be not maintained)_
-- [Chinese language/中文/Китайский язык](indexChinese.md) _(will be not maintained)_
+- [Russian language/Русский язык/俄语长](indexRussian.md) _(only per release update)_
+- [Chinese language/中文/Китайский язык](indexChinese.md) _(only per release update)_
 
 ## Supported protocols
 - **Vless** _(includes full support for all transports, encryption)_. Provided by Xray package (`bin/xray`)
 - **Socks5**
 - **Trojan**. Provided by Xray package (`bin/xray`)
-- **Shadowsocks**. Provided by Xray package (`bin/xray`)
+- **Shadowsocks**
 - **Hysteria2**. Provided by Hysteria2 package (`bin/hysteria2`)
 -----------
 ## Showcase
 **Linux** _(CachyOS, Console as terminal)_
-![Linux 1.2 2 (6STBL-1) Showcase](https://yzyworks.com/git/Mintray/demo/Showcase_Linux.png)
+![Linux Showcase](demo/Showcase_Linux.png)
 
-**macOS** _(Tahoe, Warp as terminal. Terminal has white background because macOS captures only the window without background)_
-![macOS 1.2 1 (6STBL-1) Showcase](https://yzyworks.com/git/Mintray/demo/Showcase_macOS.png)
+**macOS** _(Tahoe, Warp as terminal)_
+![macOS Showcase](demo/Showcase_macOS.png)
 -----------
 ## Why Mintray
 - **No dependencies** _(Works without ANY dependencies on bare Linux & macOS machine in full capabilities with binary)_
@@ -30,7 +30,7 @@ No dependencies _(released binaries only)_, TUI only. Project is open-source and
 - **Open source** _(most clients are closed-source, we are 100% transparent on everything here)_
 -----------
 ## Get Mintray _(released binaries & repo)_
-- [**Mintray Repository View**](https://yzyworks.com/git/Mintray/) _(first priority)_
+- [**Mintray Repository View**](https://yzyworks.com/git/Mintray/) _(first priority, has source code & other)_
 - [**GitHub**](https://github.com/dev4ones-space/Mintray/releases) _(second priority, only Releases & README)_
 -----------
 ## How to use
@@ -52,7 +52,7 @@ No dependencies _(released binaries only)_, TUI only. Project is open-source and
 --------
 ## Building from source
 
-```bash
+```
 git clone https://yzyworks.com/git/Mintray/.git
 cd Mintray
 ```
@@ -61,7 +61,9 @@ Grab last release of binaries in following repos
 [XTLS/Xray-core](https://github.com/XTLS/Xray-core/releases)
 
 [xjasonlyu/tun2socks](https://github.com/xjasonlyu/tun2socks/releases)
-```bash
+
+**[apernet/hysteria](https://github.com/apernet/hysteria/releases)**
+```
 pip install pyinstaller
 mkdir bin && cp /path/to/xray /path/to/tun2socks bin/
 pyinstaller Mintray.spec
@@ -70,24 +72,25 @@ pyinstaller Mintray.spec
 ## Building from source (step-by-step)
 _(all of this requires Python3 to be installed in your `$PATH`, download installer from [python.org](https://www.python.org/downloads/))_
 1. Clone the repo && cd after: _(`cd` changes the directory your terminal is currently in)_
-```bash
+```
 git clone https://yzyworks.com/git/Mintray/.git && cd Mintray
 ```
 2. Collect binaries for your current device: _(specifications like device arch (x84_64, aarch64/arm) and OS (darwin for macOS or just linux))_
 - **[XTLS/Xray-core](https://github.com/XTLS/Xray-core/releases)**
 - **[xjasonlyu/tun2socks](https://github.com/xjasonlyu/tun2socks/releases)**
+- **[apernet/hysteria](https://github.com/apernet/hysteria/releases)**
 3. Install PyInstaller module for Python: _(requires pip to be installer & work properly)_
-```bash
+```
 pip install pyinstaller
 ```
 or
-```bash
+```
 python3 -m pip install pyinstaller
 ```
 _(also, if installation fail because of error externally managed, add this argument to command: `--break-system-packages`)_
 
 4. Create `bin/` directory & put binaries in it: _(requires slight command changing to work by editing path)_
-```bash
+```
 mkdir bin && cp /path/to/xray /path/to/tun2socks bin/
 ```
 5. Build binary:

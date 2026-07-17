@@ -6,8 +6,8 @@
     "Latest": true,
     "Description": "- **Hysteria2, SOCKS5, Trojan, Shadowsocks**\n- **Added support for changing UserAgent when fetching subscriptions**",
     "Assets": [
-      { "FileName": "macOS (ARM64)", "DownloadLink": "https://yzyworks.com/git/Mintray/Releases/Mintray_macOS_6STBL-1" },
-      { "FileName": "Linux (x86_64)", "DownloadLink": "https://yzyworks.com/git/Mintray/Releases/Mintray_Linux_6STBL-1" }
+      { "FileName": "macOS (ARM64)", "DownloadLink": "Releases/Mintray_macOS_6STBL-1" },
+      { "FileName": "Linux (x86_64)", "DownloadLink": "Releases/Mintray_Linux_6STBL-1" }
     ]
   }
 ]
